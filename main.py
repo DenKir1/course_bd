@@ -1,48 +1,28 @@
+from utils import get_employers, create_db, create_tables, fill_db
+from config import config
+from bd_manager import DBManager
 
-from utils import create_table, add_to_table
+if __name__ == '__main__':
+    companies = [78638,  # Тинькофф
+                 84585,  # Авито
+                 3529,  # Сбер
+                 633069,  # Selectel
+                 1740,  # Яндекс
+                 1375441,  # Okko
+                 1272486,  # Сбермаркет
+                 2180,  # Ozon
+                 1122462,  # Skyeng
+                 15478,  # VK
+                 1057,  # Kaspersky
+                 2136954,  # DomClick
+                 1429999,  # Cian
+                 ]
 
-from db_manager import DBManager
+    database_name = 'имя базы данных'
+    params = config()
 
+    create_db(database_name, params)
+    create_tables(database_name, params)
+    fill_db(get_employers(companies), database_name, params)
 
-def main():
-    employers_list = [1740, 15478, 8620, 3529, 78638, 4006, 4504679, 561525, 64174, 8642172]
-    dbmanager = DBManager()
-    create_table()
-    add_to_table(employers_list)
-
-
-    while True:
-
-        task = input(
-            "Введите 1, чтобы получить список всех компаний и количество вакансий у каждой компании\n"
-            "Введите 2, чтобы получить список всех вакансий с указанием названия компании, "
-            "названия вакансии и зарплаты и ссылки на вакансию\n"
-            "Введите 3, чтобы получить среднюю зарплату по вакансиям\n"
-            "Введите 4, чтобы получить список всех вакансий, у которых зарплата выше средней по всем вакансиям\n"
-            "Введите 5, чтобы получить список всех вакансий, в названии которых содержатся переданные в метод слова\n"
-            "Введите Стоп, чтобы завершить работу\n"
-        )
-
-        if task == "Стоп":
-            break
-        elif task == '1':
-            print(dbmanager.get_companies_and_vacancies_count())
-            print()
-        elif task == '2':
-            print(dbmanager.get_all_vacancies())
-            print()
-        elif task == '3':
-            print(dbmanager.get_avg_salary())
-            print()
-        elif task == '4':
-            print(dbmanager.get_vacancies_with_higher_salary())
-            print()
-        elif task == '5':
-            keyword = input('Введите ключевое слово: ')
-            print(dbmanager.get_vacancies_with_keyword(keyword))
-            print()
-        else:
-            print('Неправильный запрос')
-
-
-main()
+    db_manager = DBManager(database_name, params)

@@ -1,109 +1,114 @@
-import psycopg2
 import requests
+import psycopg2
 
 
-def get_vacancies(employer_id):
-    """Получение данных вакансий по API"""
+def get_employers(companies):
+    """
+    В качестве аргумента принимает список с id компаниями
+    Возвращает список словарей формата
+    {company:
+    vacancies: }
+    """
+    employers = []
+    for company in companies:
+        url = f'https://api.hh.ru/employers/{company}'
+        company_response = requests.get(url).json()
+        vacancy_response = requests.get(company_response['vacancies_url']).json()
+        employers.append({
+            'company': company_response,
+            'vacancies': vacancy_response['items']
+        })
 
-    params = {
-        'area': 1,
-        'page': 0,
-        'per_page': 100
-    }
-    url = f"https://api.hh.ru/vacancies?employer_id={employer_id}"
-    data_vacancies = requests.get(url, params=params).json()
-
-    vacancies_data = []
-    for item in data_vacancies["items"]:
-        hh_vacancies = {
-            'vacancy_id': int(item['id']),
-            'vacancies_name': item['name'],
-            'payment': item["salary"]["from"] if item["salary"] else None,
-            'requirement': item['snippet']['requirement'],
-            'vacancies_url': item['alternate_url'],
-            'employer_id': employer_id
-        }
-        if hh_vacancies['payment'] is not None:
-            vacancies_data.append(hh_vacancies)
-
-        return vacancies_data
+    return employers
 
 
-def get_employer(employer_id):
-    """Получение данных о работодателей  по API"""
+def filter_strings(string: str) -> str:
+    """
+    Принимает в качестве аргумента строку
+    Возвращает измененную строку без символов, прописанных в списке symbols
+    """
 
-    url = f"https://api.hh.ru/employers/{employer_id}"
-    data_vacancies = requests.get(url).json()
-    hh_company = {
-        "employer_id": int(employer_id),
-        "company_name": data_vacancies['name'],
-        "open_vacancies": data_vacancies['open_vacancies']
-        }
+    symbols = ['\n', '<strong>', '\r', '</strong>', '</p>', '<p>', '</li>', '<li>',
+               '<b>', '</b>', '<ul>', '<li>', '</li>', '<br />', '</ul>']
 
-    return hh_company
+    for symbol in symbols:
+        string = string.replace(symbol, '')
 
-
-def create_table():
-    """Создание БД, созданение таблиц"""
-
-    conn = psycopg2.connect(host="localhost", database="postgres",
-                            user="postgres", password="12345")
-    conn.autocommit = True
-    cur = conn.cursor()
-
-    cur.execute("DROP DATABASE IF EXISTS course_work_5")
-    cur.execute("CREATE DATABASE course_work_5")
-
-    conn.close()
-
-    conn = psycopg2.connect(host="localhost", database="hh_vacan",
-                            user="postgres", password="12345")
-    with conn.cursor() as cur:
-        cur.execute("""
-                    CREATE TABLE employers (
-                    employer_id INTEGER PRIMARY KEY,
-                    company_name varchar(255),
-                    open_vacancies INTEGER
-                    )""")
-
-        cur.execute("""
-                    CREATE TABLE vacancies (
-                    vacancy_id SERIAL PRIMARY KEY,
-                    vacancies_name varchar(255),
-                    payment INTEGER,
-                    requirement TEXT,
-                    vacancies_url TEXT,
-                    employer_id INTEGER REFERENCES employers(employer_id)
-                    )""")
-    conn.commit()
-    conn.close()
+    return string
 
 
-def add_to_table(employers_list):
-    """Заполнение базы данных компании и вакансии"""
+def filter_salary(salary):
+    if salary is not None:
+        if salary['from'] is not None and salary['to'] is not None:
+            return round((salary['from'] + salary['to']) / 2)
+        elif salary['from'] is not None:
+            return salary['from']
+        elif salary['to'] is not None:
+            return salary['to']
+    return None
 
-    with psycopg2.connect(host="localhost", database="course_work_5",
-                          user="postgres", password="12345") as conn:
-        with conn.cursor() as cur:
-            cur.execute('TRUNCATE TABLE employers, vacancies RESTART IDENTITY;')
 
-            for employer in employers_list:
-                employer_list = get_employer(employer)
-                cur.execute('INSERT INTO employers (employer_id, company_name, open_vacancies) '
-                            'VALUES (%s, %s, %s) RETURNING employer_id',
-                            (employer_list['employer_id'], employer_list['company_name'],
-                             employer_list['open_vacancies']))
+def create_db(database_name, params):
+    connection = psycopg2.connect(database='postgres', **params)
+    connection.autocommit = True
 
-            for employer in employers_list:
-                vacancy_list = get_vacancies(employer)
-                for v in vacancy_list:
-                    cur.execute('INSERT INTO vacancies (vacancy_id, vacancies_name, '
-                                'payment, requirement, vacancies_url, employer_id) '
-                                'VALUES (%s, %s, %s, %s, %s, %s)',
-                                (v['vacancy_id'], v['vacancies_name'], v['payment'],
-                                 v['requirement'], v['vacancies_url'], v['employer_id']))
+    with connection.cursor() as cursor:
+        cursor.execute(f'DROP DATABASE {database_name}')
+        cursor.execute(f'CREATE DATABASE {database_name}')
 
-        conn.commit()
+    connection.close()
+
+
+def create_tables(database_name, params):
+    connection = psycopg2.connect(database=database_name, **params)
+
+    with connection.cursor() as cursor:
+        cursor.execute('CREATE TABLE companies('
+                       'company_id serial PRIMARY KEY,'
+                       'company_name varchar(50) NOT NULL,'
+                       'description text,'
+                       'link varchar(200) NOT NULL,'
+                       'url_vacancies varchar(200) NOT NULL)')
+
+        cursor.execute('CREATE TABLE vacancies('
+                       'vacancy_id serial PRIMARY KEY,'
+                       'company_id int REFERENCES companies (company_id) NOT NULL,'
+                       'title_vacancy varchar(150) NOT NULL,'
+                       'salary int,'
+                       'link varchar(200) NOT NULL,'
+                       'description text,'
+                       'experience varchar(70))')
+
+    connection.commit()
+    connection.close()
+
+
+def fill_db(employers: list[dict], database_name, params):
+    connection = psycopg2.connect(database=database_name, **params)
+
+    with connection.cursor() as cursor:
+        for employer in employers:
+            cursor.execute('INSERT INTO companies (company_name, description, link, url_vacancies)'
+                           'VALUES (%s, %s, %s, %s)'
+                           'returning company_id',
+                           (employer["company"].get("name"),
+                            filter_strings(employer["company"].get("description")),
+                            employer["company"].get("alternate_url"),
+                            employer["company"].get("vacancies_url")))
+
+            company_id = cursor.fetchone()[0]
+
+            for vacancy in employer["vacancies"]:
+                salary = filter_salary(vacancy["salary"])
+                cursor.execute('INSERT INTO vacancies'
+                               '(company_id, title_vacancy, salary, link, description, experience)'
+                               'VALUES (%s, %s, %s, %s, %s, %s)',
+                               (company_id, vacancy["name"], salary,
+                                vacancy["alternate_url"], vacancy["snippet"].get("responsibility"),
+                                vacancy["experience"].get("name")))
+
+    connection.commit()
+    connection.close()
 
 
 def create_database(database_name: str, params: dict):
